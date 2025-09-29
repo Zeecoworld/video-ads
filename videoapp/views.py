@@ -27,67 +27,136 @@ def index(request):
 
 
 
-class HygenAPIClient:
+class HeyGenAPIClient:
     """
-    Hygen API client for text-to-video generation
+    HeyGen API client for text-to-video generation with AI avatars
     """
     def __init__(self, api_key: str):
-        self.api_key = os.getenv('HYGEN_API_KEY')
-        self.base_url = "https://api.hygen.ai/v1"
+        self.api_key = os.getenv("HYGEN_API_KEY")
+        self.base_url = "https://api.heygen.com"
         self.headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
+            "X-Api-Key": api_key,
+            "Content-Type": "application/json",
+            "Accept": "application/json"
         }
     
-    def generate_video(self, prompt: str, duration: int = 5, 
-                      aspect_ratio: str = "16:9", 
-                      style: str = None) -> dict:
-        """
-        Initiate video generation
-        """
-        endpoint = f"{self.base_url}/generate"
-        
-        payload = {
-            "prompt": prompt,
-            "duration": duration,
-            "aspect_ratio": aspect_ratio
-        }
-        
-        if style:
-            payload["style"] = style
+    def list_avatars(self):
+        """Get list of available avatars"""
+        endpoint = f"{self.base_url}/v2/avatars"
         
         try:
+            response = requests.get(endpoint, headers=self.headers, timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Error listing avatars: {e}")
+            return None
+    
+    def list_voices(self):
+        """Get list of available voices"""
+        endpoint = f"{self.base_url}/v2/voices"
+        
+        try:
+            response = requests.get(endpoint, headers=self.headers, timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Error listing voices: {e}")
+            return None
+    
+    def generate_video(self, text: str, avatar_id: str = None, 
+                      voice_id: str = None, width: int = 1280, 
+                      height: int = 720) -> dict:
+        """
+        Generate video with HeyGen API
+        """
+        endpoint = f"{self.base_url}/v2/video/generate"
+        
+        # Default avatar and voice if not provided
+        if not avatar_id:
+            avatar_id = "Lina_Dress_Sitting_Side_public"  # Default avatar
+        if not voice_id:
+            voice_id = "119caed25533477ba63822d5d1552d25"  # Default English voice
+        
+        payload = {
+            "video_inputs": [
+                {
+                    "character": {
+                        "type": "avatar",
+                        "avatar_id": avatar_id,
+                        "avatar_style": "normal"
+                    },
+                    "voice": {
+                        "type": "text",
+                        "input_text": text[:1500],  # Max 1500 characters
+                        "voice_id": voice_id,
+                        "speed": 1.0
+                    }
+                }
+            ],
+            "dimension": {
+                "width": width,
+                "height": height
+            }
+        }
+        
+        try:
+            logger.info(f"Sending request to: {endpoint}")
+            logger.info(f"Payload: {json.dumps(payload, indent=2)}")
+            
             response = requests.post(
                 endpoint, 
                 json=payload, 
                 headers=self.headers,
                 timeout=30
             )
+            
+            logger.info(f"Response status: {response.status_code}")
+            logger.info(f"Response: {response.text}")
+            
             response.raise_for_status()
-            return response.json()
+            
+            result = response.json()
+            
+            if result.get('error'):
+                raise Exception(f"API Error: {result['error']}")
+            
+            return result
+            
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP Error {response.status_code}: {response.text}"
+            logger.error(error_msg)
+            raise Exception(error_msg)
         except requests.exceptions.RequestException as e:
-            logger.error(f"Error generating video: {e}")
-            raise Exception(f"Failed to generate video: {str(e)}")
+            logger.error(f"Request error: {e}")
+            raise Exception(f"Failed to connect to API: {str(e)}")
     
-    def check_status(self, task_id: str) -> dict:
+    def check_status(self, video_id: str) -> dict:
         """
         Check video generation status
         """
-        endpoint = f"{self.base_url}/status/{task_id}"
+        endpoint = f"{self.base_url}/v1/video_status.get"
+        params = {"video_id": video_id}
         
         try:
             response = requests.get(
                 endpoint, 
+                params=params,
                 headers=self.headers,
                 timeout=30
             )
+            
+            logger.info(f"Status check response: {response.status_code}")
+            logger.info(f"Status: {response.text}")
+            
             response.raise_for_status()
             return response.json()
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error checking status: {e}")
+            
+        except Exception as e:
+            logger.error(f"Status check error: {e}")
             raise Exception(f"Failed to check status: {str(e)}")
     
-    def wait_for_completion(self, task_id: str, max_wait: int = 300, 
+    def wait_for_completion(self, video_id: str, max_wait: int = 300, 
                           poll_interval: int = 5) -> dict:
         """
         Wait for video generation to complete
@@ -95,25 +164,44 @@ class HygenAPIClient:
         start_time = time.time()
         
         while time.time() - start_time < max_wait:
-            status = self.check_status(task_id)
-            
-            state = status.get('status')
-            
-            if state == 'completed':
-                return {
-                    'success': True,
-                    'video_url': status.get('video_url'),
-                    'status': state
-                }
-            elif state == 'failed':
-                return {
-                    'success': False,
-                    'error': status.get('error', 'Video generation failed'),
-                    'status': state
-                }
-            
-            # Still processing
-            time.sleep(poll_interval)
+            try:
+                result = self.check_status(video_id)
+                
+                if result.get('code') != 100:
+                    logger.error(f"API returned error code: {result}")
+                    return {
+                        'success': False,
+                        'error': result.get('message', 'Unknown error'),
+                        'status': 'failed'
+                    }
+                
+                data = result.get('data', {})
+                status = data.get('status')
+                
+                logger.info(f"Current status: {status}")
+                
+                if status == 'completed':
+                    return {
+                        'success': True,
+                        'video_url': data.get('video_url'),
+                        'thumbnail_url': data.get('thumbnail_url'),
+                        'duration': data.get('duration'),
+                        'status': status
+                    }
+                elif status == 'failed':
+                    error_info = data.get('error', {})
+                    return {
+                        'success': False,
+                        'error': error_info.get('message', 'Video generation failed'),
+                        'status': status
+                    }
+                
+                # Still processing (waiting, pending, processing)
+                time.sleep(poll_interval)
+                
+            except Exception as e:
+                logger.error(f"Error during status check: {str(e)}")
+                time.sleep(poll_interval)
         
         # Timeout
         return {
@@ -127,29 +215,21 @@ class HygenAPIClient:
 @csrf_exempt
 def generate_video(request):
     """
-    Django view to handle video generation requests
+    Django view to handle HeyGen video generation requests
     
     Expected JSON payload:
     {
-        "prompt": "Video description",
-        "duration": 5,
-        "aspect_ratio": "16:9",
-        "style": "cinematic" (optional)
-    }
-    
-    Returns JSON response:
-    {
-        "success": true/false,
-        "video_url": "url to video" (if successful),
-        "error": "error message" (if failed),
-        "task_id": "task identifier"
+        "prompt": "Text for the avatar to speak",
+        "avatar_id": "optional_avatar_id",
+        "voice_id": "optional_voice_id"
     }
     """
     try:
         # Parse request body
         data = json.loads(request.body)
+        logger.info(f"Received request: {data}")
         
-        # Validate required fields
+        # Get text prompt
         prompt = data.get('prompt')
         if not prompt:
             return JsonResponse({
@@ -157,73 +237,70 @@ def generate_video(request):
                 'error': 'Prompt is required'
             }, status=400)
         
-        # Get optional parameters with defaults
-        duration = data.get('duration', 5)
-        aspect_ratio = data.get('aspect_ratio', '16:9')
-        style = data.get('style', None)
-        
-        # Validate duration
-        if not isinstance(duration, int) or duration < 3 or duration > 10:
+        # Validate text length
+        if len(prompt) > 1500:
             return JsonResponse({
                 'success': False,
-                'error': 'Duration must be between 3 and 10 seconds'
+                'error': 'Text must be less than 1500 characters'
             }, status=400)
         
-        # Validate aspect ratio
-        valid_ratios = ['16:9', '9:16', '1:1', '4:3']
-        if aspect_ratio not in valid_ratios:
-            return JsonResponse({
-                'success': False,
-                'error': f'Invalid aspect ratio. Must be one of: {", ".join(valid_ratios)}'
-            }, status=400)
+        # Get optional parameters
+        avatar_id = data.get('avatar_id', None)
+        voice_id = data.get('voice_id', None)
         
-        # Get API key from settings
-        api_key = os.getenv('HYGEN_API_KEY')
+        # Get API key from environment
+        api_key = os.getenv('HEYGEN_API_KEY')
+        
         if not api_key:
-            logger.error("HYGEN_API_KEY not configured in settings")
+            logger.error("HEYGEN_API_KEY not found in environment")
             return JsonResponse({
                 'success': False,
-                'error': 'API key not configured'
+                'error': 'API key not configured. Add HEYGEN_API_KEY to your .env file'
             }, status=500)
         
-        # Initialize Hygen API client
-        client = HygenAPIClient(api_key)
+        logger.info(f"Using API key: {api_key[:10]}...")
         
-        logger.info(f"Generating video with prompt: {prompt}")
+        # Initialize HeyGen API client
+        client = HeyGenAPIClient(api_key)
+        
+        logger.info(f"Generating video with text: {prompt[:100]}...")
         
         # Start video generation
         generation_result = client.generate_video(
-            prompt=prompt,
-            duration=duration,
-            aspect_ratio=aspect_ratio,
-            style=style
+            text=prompt,
+            avatar_id=avatar_id,
+            voice_id=voice_id
         )
         
-        task_id = generation_result.get('task_id')
-        if not task_id:
+        # Get video_id from response
+        video_id = generation_result.get('data', {}).get('video_id')
+        if not video_id:
+            logger.error(f"No video_id in response: {generation_result}")
             return JsonResponse({
                 'success': False,
-                'error': 'No task ID received from API'
+                'error': 'No video ID received from API'
             }, status=500)
         
-        logger.info(f"Video generation started with task_id: {task_id}")
+        logger.info(f"Video generation started with video_id: {video_id}")
         
-        # Wait for completion (with timeout)
-        result = client.wait_for_completion(task_id, max_wait=300, poll_interval=5)
+        # Wait for completion
+        result = client.wait_for_completion(video_id, max_wait=300, poll_interval=5)
         
         if result['success']:
             logger.info(f"Video generated successfully: {result['video_url']}")
             return JsonResponse({
                 'success': True,
                 'video_url': result['video_url'],
-                'task_id': task_id
+                'thumbnail_url': result.get('thumbnail_url'),
+                'duration': result.get('duration'),
+                'video_id': video_id
             })
         else:
             logger.error(f"Video generation failed: {result['error']}")
             return JsonResponse({
                 'success': False,
                 'error': result['error'],
-                'task_id': task_id
+                'video_id': video_id
             }, status=500)
     
     except json.JSONDecodeError:
@@ -233,61 +310,40 @@ def generate_video(request):
         }, status=400)
     
     except Exception as e:
-        logger.error(f"Unexpected error in generate_video: {str(e)}", exc_info=True)
+        logger.error(f"Unexpected error: {str(e)}", exc_info=True)
         return JsonResponse({
             'success': False,
             'error': f'Internal server error: {str(e)}'
         }, status=500)
 
 
-@require_http_methods(["POST"])
-@csrf_exempt
-def generate_video_async(request):
-    """
-    Start video generation asynchronously (returns task_id immediately)
-    Use this if you want to implement polling from the frontend
-    """
+@require_http_methods(["GET"])
+def list_avatars(request):
+    """Get list of available avatars"""
     try:
-        data = json.loads(request.body)
-        
-        prompt = data.get('prompt')
-        if not prompt:
-            return JsonResponse({
-                'success': False,
-                'error': 'Prompt is required'
-            }, status=400)
-        
-        duration = data.get('duration', 5)
-        aspect_ratio = data.get('aspect_ratio', '16:9')
-        style = data.get('style', None)
-        
-        # Get API key
-        api_key = os.getenv('HYGEN_API_KEY')
+        api_key = os.getenv('HEYGEN_API_KEY')
         if not api_key:
             return JsonResponse({
                 'success': False,
                 'error': 'API key not configured'
             }, status=500)
         
-        # Initialize client and start generation
-        client = HygenAPIClient(api_key)
-        result = client.generate_video(
-            prompt=prompt,
-            duration=duration,
-            aspect_ratio=aspect_ratio,
-            style=style
-        )
+        client = HeyGenAPIClient(api_key)
+        result = client.list_avatars()
         
-        task_id = result.get('task_id')
-        
-        return JsonResponse({
-            'success': True,
-            'task_id': task_id,
-            'message': 'Video generation started'
-        })
+        if result and result.get('error') is None:
+            return JsonResponse({
+                'success': True,
+                'avatars': result.get('data', {}).get('avatars', [])
+            })
+        else:
+            return JsonResponse({
+                'success': False,
+                'error': 'Failed to fetch avatars'
+            }, status=500)
     
     except Exception as e:
-        logger.error(f"Error starting video generation: {str(e)}")
+        logger.error(f"Error listing avatars: {str(e)}")
         return JsonResponse({
             'success': False,
             'error': str(e)
@@ -295,48 +351,68 @@ def generate_video_async(request):
 
 
 @require_http_methods(["GET"])
-def check_video_status(request, task_id):
-    """
-    Check status of video generation
-    Use with async approach
-    
-    URL: /check-video-status/<task_id>/
-    """
+def list_voices(request):
+    """Get list of available voices"""
     try:
-        api_key = os.getenv('HYGEN_API_KEY')
+        api_key = os.getenv('HEYGEN_API_KEY')
         if not api_key:
             return JsonResponse({
                 'success': False,
                 'error': 'API key not configured'
             }, status=500)
         
-        client = HygenAPIClient(api_key)
-        status = client.check_status(task_id)
+        client = HeyGenAPIClient(api_key)
+        result = client.list_voices()
         
-        state = status.get('status')
-        
-        if state == 'completed':
+        if result and result.get('error') is None:
             return JsonResponse({
                 'success': True,
-                'status': 'completed',
-                'video_url': status.get('video_url')
-            })
-        elif state == 'failed':
-            return JsonResponse({
-                'success': False,
-                'status': 'failed',
-                'error': status.get('error', 'Generation failed')
+                'voices': result.get('data', {}).get('voices', [])
             })
         else:
             return JsonResponse({
-                'success': True,
-                'status': 'processing',
-                'progress': status.get('progress', 0)
-            })
+                'success': False,
+                'error': 'Failed to fetch voices'
+            }, status=500)
     
     except Exception as e:
-        logger.error(f"Error checking status: {str(e)}")
+        logger.error(f"Error listing voices: {str(e)}")
         return JsonResponse({
             'success': False,
             'error': str(e)
         }, status=500)
+
+
+@require_http_methods(["GET"])
+def test_api(request):
+    """Test HeyGen API connection"""
+    try:
+        api_key = os.getenv('HEYGEN_API_KEY')
+        
+        if not api_key:
+            return JsonResponse({
+                'success': False,
+                'error': 'API key not found in environment'
+            })
+        
+        client = HeyGenAPIClient(api_key)
+        result = client.list_avatars()
+        
+        if result and result.get('error') is None:
+            return JsonResponse({
+                'success': True,
+                'message': 'API connection successful!',
+                'avatar_count': len(result.get('data', {}).get('avatars', []))
+            })
+        else:
+            return JsonResponse({
+                'success': False,
+                'error': 'API connection failed',
+                'details': result
+            })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        })
