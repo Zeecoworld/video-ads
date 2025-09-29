@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Text to Video Generator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #662287 0%, #763388 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 120px;
+            transition: border-color 0.3s;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .options-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        select, input[type="number"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            background: white;
+            transition: border-color 0.3s;
+        }
+
+        select:focus, input[type="number"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            display: none;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .status.loading {
+            display: block;
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            color: #856404;
+        }
+
+        .status.success {
+            display: block;
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+            color: #155724;
+        }
+
+        .status.error {
+            display: block;
+            background: #f8d7da;
+            border-left: 4px solid #dc3545;
+            color: #721c24;
+        }
+
+        .video-result {
+            margin-top: 20px;
+            display: none;
+        }
+
+        .video-result.show {
+            display: block;
+        }
+
+        video {
+            width: 100%;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 3px solid rgba(0,0,0,.1);
+            border-radius: 50%;
+            border-top-color: #856404;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎬 Text to Video Generator</h1>
+        <p class="subtitle">Transform your ideas into stunning videos</p>
+
+        <form id="videoForm">
+            {% csrf_token %}
+            
+            <div class="form-group">
+                <label for="prompt">Video Description</label>
+                <textarea 
+                    id="prompt" 
+                    name="prompt" 
+                    placeholder="Describe the video you want to create... e.g., 'A serene sunset over a calm ocean with gentle waves'"
+                    required
+                ></textarea>
+            </div>
+
+            <div class="options-grid">
+                <div class="form-group">
+                    <label for="duration">Duration (seconds)</label>
+                    <input 
+                        type="number" 
+                        id="duration" 
+                        name="duration" 
+                        value="5" 
+                        min="3" 
+                        max="10"
+                        required
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="aspect_ratio">Aspect Ratio</label>
+                    <select id="aspect_ratio" name="aspect_ratio">
+                        <option value="16:9">16:9 (Landscape)</option>
+                        <option value="9:16">9:16 (Portrait)</option>
+                        <option value="1:1">1:1 (Square)</option>
+                        <option value="4:3">4:3 (Standard)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="style">Style (Optional)</label>
+                <select id="style" name="style">
+                    <option value="">Default</option>
+                    <option value="cinematic">Cinematic</option>
+                    <option value="anime">Anime</option>
+                    <option value="realistic">Realistic</option>
+                    <option value="cartoon">Cartoon</option>
+                    <option value="abstract">Abstract</option>
+                </select>
+            </div>
+
+            <button type="submit" class="btn" id="generateBtn">
+                Generate Video
+            </button>
+        </form>
+
+        <div id="status" class="status"></div>
+
+        <div id="videoResult" class="video-result">
+            <h3>Generated Video:</h3>
+            <video id="videoPlayer" controls></video>
+            <a id="downloadLink" class="btn" style="display: inline-block; text-align: center; margin-top: 10px; text-decoration: none;">
+                Download Video
+            </a>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('videoForm');
+        const statusDiv = document.getElementById('status');
+        const videoResult = document.getElementById('videoResult');
+        const videoPlayer = document.getElementById('videoPlayer');
+        const downloadLink = document.getElementById('downloadLink');
+        const generateBtn = document.getElementById('generateBtn');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const formData = new FormData(form);
+            const data = {
+                prompt: formData.get('prompt'),
+                duration: parseInt(formData.get('duration')),
+                aspect_ratio: formData.get('aspect_ratio'),
+                style: formData.get('style') || null
+            };
+
+            // Show loading state
+            generateBtn.disabled = true;
+            generateBtn.textContent = 'Generating...';
+            videoResult.classList.remove('show');
+            statusDiv.className = 'status loading';
+            statusDiv.innerHTML = '<span class="spinner"></span>Generating your video... This may take a few minutes.';
+
+            try {
+                const response = await fetch('/generate-video/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    statusDiv.className = 'status success';
+                    statusDiv.textContent = '✓ Video generated successfully!';
+                    
+                    videoPlayer.src = result.video_url;
+                    downloadLink.href = result.video_url;
+                    downloadLink.download = 'generated_video.mp4';
+                    videoResult.classList.add('show');
+                } else {
+                    throw new Error(result.error || 'Failed to generate video');
+                }
+            } catch (error) {
+                statusDiv.className = 'status error';
+                statusDiv.textContent = '✗ Error: ' + error.message;
+            } finally {
+                generateBtn.disabled = false;
+                generateBtn.textContent = 'Generate Video';
+            }
+        });
+    </script>
+</body>
+</html>
