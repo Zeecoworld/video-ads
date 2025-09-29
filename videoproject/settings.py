@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-4&*_muy_&b7x%ia_a&$!t425lgv1wbwm8i3_e&7d$0p407xm5a
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['https://video-ads-5fmq.onrender.com']
 
 
 # Application definition
